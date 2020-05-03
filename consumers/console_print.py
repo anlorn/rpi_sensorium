@@ -23,7 +23,7 @@ class ConsolePrintConsumer(base.BaseConsumer):
             else:
                 LOGGER.info(
                     "Measured At: %s. Value: %s. Data type: %s",
-                    last_measure.measured_at, last_measure, data_type
+                    last_measure.measured_at, last_measure, data_type.value
                 )
 
 

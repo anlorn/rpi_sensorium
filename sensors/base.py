@@ -28,7 +28,7 @@ class BaseSensor(ABC):
         pass
 
     @abstractmethod
-    def get_measure(self) -> Measure:
+    def get_measures(self) -> List[Measure]:
         pass
 
     @abstractmethod

@@ -3,6 +3,8 @@ import time
 import logging
 from typing import List, Type
 
+import busio
+import board
 
 from rpi_sensorium.infra import errors
 from rpi_sensorium.sensors.i2c import I2CSensorBase
@@ -13,19 +15,41 @@ from rpi_sensorium.consumers.base import BaseConsumer, EXISTING_CONSUMERS
 LOGGER = logging.getLogger(__name__)
 
 
-def detect_connected_i2c_sensors() -> List[Type[I2CSensorBase]]:
-    return AVAILABLE_SENSORS  # TODO: Add actual I2C bus scanning, and using only i2c sensors
+def detect_connected_i2c_sensors(i2c_bus: busio.I2C) -> List[Type[I2CSensorBase]]:
+    connected_i2c_sensors = []  # type: List[Type[I2CSensorBase]]
+    found_i2c_addresses = set(i2c_bus.scan())
+    LOGGER.debug("Found following i2c devices addresses: %s", found_i2c_addresses)
+    for sensor_cls in AVAILABLE_SENSORS:
+        if issubclass(sensor_cls, (I2CSensorBase,)):
+            if sensor_cls.I2C_ADDRESS in found_i2c_addresses:
+                LOGGER.info(
+                    "Sensor %s with address %s is connected to I2C bus, will use this sensor",
+                    sensor_cls,
+                    sensor_cls.I2C_ADDRESS,
+                )
+                connected_i2c_sensors.append(sensor_cls)
+            else:
+                LOGGER.debug(
+                    "Sensor class '%s' has I2C address %s which isn't found on i2c bus, skipping sensor",
+                    sensor_cls,
+                    sensor_cls.I2C_ADDRESS
+                )
+        else:
+            LOGGER.debug("Sensor class %s isn't an I2C sensor, skip it", sensor_cls)
+    return connected_i2c_sensors
 
 
 def initialize_sensors() -> List[BaseSensor]:
+    i2c_bus = busio.I2C(board.SCL, board.SDA)
+    LOGGER.info("Initalized I2C bus")
     active_sensors = []  # type: List[BaseSensor]
-    available_i2c_sensors = detect_connected_i2c_sensors()
+    available_i2c_sensors = detect_connected_i2c_sensors(i2c_bus)
     LOGGER.info("Found %d I2C sensors", len(available_i2c_sensors))
 
     for available_i2c_sensor in available_i2c_sensors:
         LOGGER.debug("Will try to create sensor %s", available_i2c_sensor)
         try:
-            created_sensor = available_i2c_sensor({})  # TODO: config from yaml
+            created_sensor = available_i2c_sensor({}, i2c_bus)  # TODO: config from yaml
             active_sensors.append(created_sensor)
             LOGGER.debug("Initalized sensors %s", created_sensor)
         except errors.SensorError as exc:
@@ -52,6 +76,7 @@ def main():
     LOGGER.info("Initalized storage")
 
     active_sensors = initialize_sensors()
+
     if not active_sensors:
         LOGGER.error("No active sensors were found, exiting...")
         sys.exit(1)
@@ -74,13 +99,14 @@ def main_loop(storage: MeasuresStorage, sensors: List[BaseSensor], consumers: Li
     while True:
         time.sleep(1)  # TODO: think about asyncio
         for sensor in sensors:
-            LOGGER.debug("Will try to get measure from %s", sensor)
-            measure = sensor.get_measure()
-            LOGGER.debug("Will try to save measure %s from %s", measure, sensor)
-            try:
-                storage.add_measure(measure)
-            except errors.UnknownDataType as exc:
-                LOGGER.warning("Can't add Measure %s from %s. Err: %s", measure, sensor, exc)
+            LOGGER.debug("Will try to get measures from %s", sensor)
+            measures = sensor.get_measures()
+            for measure in measures:
+                LOGGER.debug("Will try to save measure %s from %s", measure, sensor)
+                try:
+                    storage.add_measure(measure)
+                except errors.UnknownDataType as exc:
+                    LOGGER.warning("Can't add Measure %s from %s. Err: %s", measure, sensor, exc)
             time.sleep(0.5)
         for consumer in consumers:
             LOGGER.debug("Will try to process measures on %s", consumer)
