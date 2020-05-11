@@ -100,6 +100,7 @@ def main_loop(storage: MeasuresStorage, sensors: List[BaseSensor], consumers: Li
         time.sleep(1)  # TODO: think about asyncio
         for sensor in sensors:
             LOGGER.debug("Will try to get measures from %s", sensor)
+            sensor.adjust([])  # TODO add actual measures list
             measures = sensor.get_measures()
             for measure in measures:
                 LOGGER.debug("Will try to save measure %s from %s", measure, sensor)
